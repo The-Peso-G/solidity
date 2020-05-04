@@ -313,6 +313,7 @@ TypePointer Type::commonType(Type const* _a, Type const* _b)
 
 MemberList const& Type::members(ContractDefinition const* _currentScope) const
 {
+	// TODO _currentScope can be nullptr!
 	if (!m_members[_currentScope])
 	{
 		MemberList::MemberMap members = nativeMembers(_currentScope);
@@ -2032,9 +2033,9 @@ string ContractType::canonicalName() const
 MemberList::MemberMap ContractType::nativeMembers(ContractDefinition const* _contract) const
 {
 	MemberList::MemberMap members;
-	solAssert(_contract, "");
 	if (m_super)
 	{
+		solAssert(_contract, "");
 		// add the most derived of all functions which are visible in derived contracts
 		auto bases = m_contract.annotation().linearizedBaseContracts;
 		solAssert(bases.size() >= 1, "linearizedBaseContracts should at least contain the most derived contract.");
@@ -2992,9 +2993,10 @@ string FunctionType::toString(bool _short) const
 	{
 		auto const* functionDefinition = dynamic_cast<FunctionDefinition const*>(m_declaration);
 		solAssert(functionDefinition, "");
-		auto const* contract = dynamic_cast<ContractDefinition const*>(functionDefinition->scope());
-		solAssert(contract, "");
-		name += contract->annotation().canonicalName;
+		if (auto const* contract = dynamic_cast<ContractDefinition const*>(functionDefinition->scope()))
+			name += contract->annotation().canonicalName;
+		else
+			name += "<SOURCENAME>";// TODO
 		name += '.';
 		name += functionDefinition->name();
 	}

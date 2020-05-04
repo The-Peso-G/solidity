@@ -48,7 +48,7 @@ else
 fi
 
 is_release() {
-    [[ "${branch}" = "release" ]] || [[ "${branch}" =~ ^v[0-9]+(\.[0-9])*$ ]]
+    true #[[ "${branch}" = "release" ]] || [[ "${branch}" =~ ^v[0-9]+(\.[0-9])*$ ]]
 }
 
 keyid=70D110489D66E2F6
