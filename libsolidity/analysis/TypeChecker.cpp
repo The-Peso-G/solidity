@@ -667,6 +667,9 @@ bool TypeChecker::visit(InlineAssembly const& _inlineAssembly)
 		auto ref = _inlineAssembly.annotation().externalReferences.find(&_identifier);
 		if (ref == _inlineAssembly.annotation().externalReferences.end())
 			return false;
+
+		auto errorWatcher = m_errorReporter.errorWatcher();
+
 		InlineAssemblyAnnotation::ExternalIdentifierInfo& identifierInfo = ref->second;
 		Declaration const* declaration = identifierInfo.declaration;
 		solAssert(!!declaration, "");
@@ -674,131 +677,89 @@ bool TypeChecker::visit(InlineAssembly const& _inlineAssembly)
 		if (auto var = dynamic_cast<VariableDeclaration const*>(declaration))
 		{
 			solAssert(var->type(), "Expected variable type!");
+			solAssert(!dynamic_cast<FixedPointType const*>(var->type()), "FixedPointType not implemented.");
 			if (var->immutable())
-			{
 				m_errorReporter.typeError(3773_error, _identifier.location, "Assembly access to immutable variables is not supported.");
-				return false;
-			}
-			if (var->isConstant())
+			else if (var->isConstant())
 			{
 				var = rootConstVariableDeclaration(*var);
 
 				if (var && !var->value())
-				{
 					m_errorReporter.typeError(3224_error, _identifier.location, "Constant has no value.");
-					return false;
-				}
 				else if (_context == yul::IdentifierContext::LValue)
-				{
 					m_errorReporter.typeError(6252_error, _identifier.location, "Constant variables cannot be assigned to.");
-					return false;
-				}
 				else if (requiresStorage)
-				{
 					m_errorReporter.typeError(6617_error, _identifier.location, "The suffixes _offset and _slot can only be used on non-constant storage variables.");
-					return false;
-				}
 				else if (var && var->value() && !var->value()->annotation().type && !dynamic_cast<Literal const*>(var->value().get()))
-				{
 					m_errorReporter.typeError(
 						2249_error,
 						_identifier.location,
 						"Constant variables with non-literal values cannot be forward referenced from inline assembly."
 					);
-					return false;
-				}
 				else if (!var || !type(*var)->isValueType() || (
 					!dynamic_cast<Literal const*>(var->value().get()) &&
 					type(*var->value())->category() != Type::Category::RationalNumber
 				))
-				{
 					m_errorReporter.typeError(7615_error, _identifier.location, "Only direct number constants and references to such constants are supported by inline assembly.");
-					return false;
-				}
 			}
-
-			solAssert(!dynamic_cast<FixedPointType const*>(var->type()), "FixedPointType not implemented.");
-
-			if (requiresStorage)
+			else if (requiresStorage)
 			{
 				if (!var->isStateVariable() && !var->type()->dataStoredIn(DataLocation::Storage))
-				{
 					m_errorReporter.typeError(3622_error, _identifier.location, "The suffixes _offset and _slot can only be used on storage variables.");
-					return false;
-				}
 				else if (_context == yul::IdentifierContext::LValue)
 				{
 					if (var->isStateVariable())
-					{
 						m_errorReporter.typeError(4713_error, _identifier.location, "State variables cannot be assigned to - you have to use \"sstore()\".");
-						return false;
-					}
 					else if (identifierInfo.isOffset)
-					{
 						m_errorReporter.typeError(9739_error, _identifier.location, "Only _slot can be assigned to.");
-						return false;
-					}
 					else
 						solAssert(identifierInfo.isSlot, "");
 				}
 			}
 			else if (!var->isConstant() && var->isStateVariable())
-			{
 				m_errorReporter.typeError(1408_error, _identifier.location, "Only local variables are supported. To access storage variables, use the _slot and _offset suffixes.");
-				return false;
-			}
 			else if (var->type()->dataStoredIn(DataLocation::Storage))
-			{
 				m_errorReporter.typeError(9068_error, _identifier.location, "You have to use the _slot or _offset suffix to access storage reference variables.");
-				return false;
-			}
 			else if (var->type()->sizeOnStack() != 1)
 			{
 				if (var->type()->dataStoredIn(DataLocation::CallData))
 					m_errorReporter.typeError(2370_error, _identifier.location, "Call data elements cannot be accessed directly. Copy to a local variable first or use \"calldataload\" or \"calldatacopy\" with manually determined offsets and sizes.");
 				else
 					m_errorReporter.typeError(9857_error, _identifier.location, "Only types that use one stack slot are supported.");
-				return false;
 			}
 		}
 		else if (requiresStorage)
-		{
 			m_errorReporter.typeError(7944_error, _identifier.location, "The suffixes _offset and _slot can only be used on storage variables.");
-			return false;
-		}
 		else if (_context == yul::IdentifierContext::LValue)
 		{
 			if (dynamic_cast<MagicVariableDeclaration const*>(declaration))
 				return false;
 
 			m_errorReporter.typeError(1990_error, _identifier.location, "Only local variables can be assigned to in inline assembly.");
-			return false;
 		}
-
-		if (_context == yul::IdentifierContext::RValue)
+		else if (_context == yul::IdentifierContext::RValue)
 		{
 			solAssert(!!declaration->type(), "Type of declaration required but not yet determined.");
 			if (dynamic_cast<FunctionDefinition const*>(declaration))
-			{
 				m_errorReporter.declarationError(2025_error, _identifier.location, "Access to functions is not allowed in inline assembly.");
-				return false;
-			}
 			else if (dynamic_cast<VariableDeclaration const*>(declaration))
 			{
 			}
 			else if (auto contract = dynamic_cast<ContractDefinition const*>(declaration))
 			{
 				if (!contract->isLibrary())
-				{
 					m_errorReporter.typeError(4977_error, _identifier.location, "Expected a library.");
-					return false;
-				}
 			}
 			else
 				return false;
 		}
-		identifierInfo.valueSize = 1;
-		return true;
+		if (errorWatcher.ok())
+		{
+			identifierInfo.valueSize = 1;
+			return true;
+		}
+		else
+			return false;
 	};
 	solAssert(!_inlineAssembly.annotation().analysisInfo, "");
 	_inlineAssembly.annotation().analysisInfo = make_shared<yul::AsmAnalysisInfo>();
